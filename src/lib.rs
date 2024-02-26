@@ -258,7 +258,7 @@ impl<PINS: Outputs> Hub75<PINS> {
     ///
     /// Takes some time and should be called quite often, otherwise the output
     /// will flicker
-    pub fn output<DELAY: DelayUs<u8>>(&mut self, delay: &mut DELAY) -> Result<(), PINS::Error> {
+    pub fn output(&mut self) -> Result<(), PINS::Error> {
         // Enable the output
         // The previous last row will continue to display
         self.pins.oe().set_low()?;
@@ -302,9 +302,9 @@ impl<PINS: Outputs> Hub75<PINS> {
                 }
                 self.pins.oe().set_high()?;
                 // Prevents ghosting, no idea why
-                delay.delay_us(2);
+                // delay.delay_us(2);
                 self.pins.lat().set_low()?;
-                delay.delay_us(2);
+                // delay.delay_us(2);
                 self.pins.lat().set_high()?;
                 // Select row
                 if count & 1 != 0 {
@@ -333,7 +333,7 @@ impl<PINS: Outputs> Hub75<PINS> {
                 } else {
                     self.pins.f().set_low()?;
                 }
-                delay.delay_us(2);
+                // delay.delay_us(2);
                 self.pins.oe().set_low()?;
             }
         }
