@@ -19,7 +19,7 @@
 use embedded_graphics_core::{
     draw_target::DrawTarget,
     geometry::{OriginDimensions, Size},
-    pixelcolor::{Rgb565, RgbColor as _},
+    pixelcolor::{Rgb888, RgbColor as _},
     Pixel,
 };
 use embedded_hal::blocking::delay::DelayUs;
@@ -34,7 +34,7 @@ pub type DataRow = [(u8, u8, u8, u8, u8, u8); 64];
 
 pub struct Hub75<PINS> {
     //       r1, g1, b1, r2, g2, b2, column, row
-    data: [DataRow; NUM_ROWS],
+    pub data: [DataRow; NUM_ROWS],
     brightness_step: u8,
     brightness_count: u8,
     pins: PINS,
@@ -258,7 +258,7 @@ impl<PINS: Outputs> Hub75<PINS> {
         // The previous last row will continue to display
         self.pins.oe().set_low()?;
         // PWM cycle
-        let threshold = u8::MAX / 2;
+        let threshold = 1;
         for (count, row) in self.data.iter().enumerate() {
             for element in row.iter() {
                 if element.0 >= threshold {
@@ -296,9 +296,9 @@ impl<PINS: Outputs> Hub75<PINS> {
             }
             self.pins.oe().set_high()?;
             // Prevents ghosting, no idea why
-            delay.delay_us(2);
+            // delay.delay_us(2);
             self.pins.lat().set_low()?;
-            delay.delay_us(2);
+            // delay.delay_us(2);
             self.pins.lat().set_high()?;
             // Select row
             if count & 1 != 0 {
@@ -327,7 +327,7 @@ impl<PINS: Outputs> Hub75<PINS> {
             } else {
                 self.pins.f().set_low()?;
             }
-            delay.delay_us(2);
+            // delay.delay_us(2);
             self.pins.oe().set_low()?;
         } // Disable the output
           // Prevents one row from being much brighter than the others
@@ -353,6 +353,18 @@ impl<PINS: Outputs> Hub75<PINS> {
 }
 
 pub type Error = &'static str;
+// This table remaps linear input values
+// (the numbers we’d like to use; e.g. 127 = half brightness)
+// to nonlinear gamma-corrected output values
+// (numbers producing the desired effect on the LED;
+// e.g. 36 = half brightness).
+const GAMMA8: [u8; 256] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10,
+    10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25, 25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36, 37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+    50, 50, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68, 69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 96, 98, 99, 101, 102, 104, 105, 107, 109, 110, 112, 114, 115, 117, 119, 120, 122, 124, 126,
+    127, 129, 131, 133, 135, 137, 138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 160, 162, 164, 167, 169, 171, 173, 175, 177, 180, 182, 184, 186, 189, 191, 193, 196, 198, 200, 203, 205, 208, 210, 213, 215, 218, 220, 223, 225, 228, 231, 233,
+    236, 239, 241, 244, 247, 249, 252, 255,
+];
 
 impl<PINS> OriginDimensions for Hub75<PINS> {
     fn size(&self) -> Size {
@@ -368,7 +380,7 @@ impl<PINS> OriginDimensions for Hub75<PINS> {
 }
 
 impl<PINS: Outputs> DrawTarget for Hub75<PINS> {
-    type Color = Rgb565;
+    type Color = Rgb888;
     type Error = Error;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
@@ -379,13 +391,13 @@ impl<PINS: Outputs> DrawTarget for Hub75<PINS> {
             let row = coord[1] % NUM_ROWS as i32;
             let data = &mut self.data[row as usize][coord[0] as usize];
             if coord[1] >= NUM_ROWS as i32 {
-                data.3 = color.r();
-                data.4 = color.g();
-                data.5 = color.b();
+                data.3 = GAMMA8[color.r() as usize];
+                data.4 = GAMMA8[color.g() as usize];
+                data.5 = GAMMA8[color.b() as usize];
             } else {
-                data.0 = color.r();
-                data.1 = color.g();
-                data.2 = color.b();
+                data.0 = GAMMA8[color.r() as usize];
+                data.1 = GAMMA8[color.g() as usize];
+                data.2 = GAMMA8[color.b() as usize];
             }
         }
         Ok(())
