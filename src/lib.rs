@@ -246,12 +246,7 @@ impl<PINS: Outputs> Hub75<PINS> {
         let data = [[(0, 0, 0, 0, 0, 0); 64]; NUM_ROWS];
         let brightness_step = 1 << (8 - brightness_bits);
         let brightness_count = ((1 << brightness_bits as u16) - 1) as u8;
-        Self {
-            data,
-            brightness_step,
-            brightness_count,
-            pins,
-        }
+        Self { data, brightness_step, brightness_count, pins }
     }
 
     /// Output the buffer to the display
@@ -263,82 +258,79 @@ impl<PINS: Outputs> Hub75<PINS> {
         // The previous last row will continue to display
         self.pins.oe().set_low()?;
         // PWM cycle
-        for mut brightness in 0..self.brightness_count {
-            brightness = (brightness + 1).saturating_mul(self.brightness_step);
-            for (count, row) in self.data.iter().enumerate() {
-                for element in row.iter() {
-                    if element.0 >= brightness {
-                        self.pins.r1().set_high()?;
-                    } else {
-                        self.pins.r1().set_low()?;
-                    }
-                    if element.1 >= brightness {
-                        self.pins.g1().set_high()?;
-                    } else {
-                        self.pins.g1().set_low()?;
-                    }
-                    if element.2 >= brightness {
-                        self.pins.b1().set_high()?;
-                    } else {
-                        self.pins.b1().set_low()?;
-                    }
-                    if element.3 >= brightness {
-                        self.pins.r2().set_high()?;
-                    } else {
-                        self.pins.r2().set_low()?;
-                    }
-                    if element.4 >= brightness {
-                        self.pins.g2().set_high()?;
-                    } else {
-                        self.pins.g2().set_low()?;
-                    }
-                    if element.5 >= brightness {
-                        self.pins.b2().set_high()?;
-                    } else {
-                        self.pins.b2().set_low()?;
-                    }
-                    self.pins.clk().set_high()?;
-                    self.pins.clk().set_low()?;
-                }
-                self.pins.oe().set_high()?;
-                // Prevents ghosting, no idea why
-                delay.delay_us(2);
-                self.pins.lat().set_low()?;
-                delay.delay_us(2);
-                self.pins.lat().set_high()?;
-                // Select row
-                if count & 1 != 0 {
-                    self.pins.a().set_high()?;
+        let threshold = u8::MAX / 2;
+        for (count, row) in self.data.iter().enumerate() {
+            for element in row.iter() {
+                if element.0 >= threshold {
+                    self.pins.r1().set_high()?;
                 } else {
-                    self.pins.a().set_low()?;
+                    self.pins.r1().set_low()?;
                 }
-                if count & 2 != 0 {
-                    self.pins.b().set_high()?;
+                if element.1 >= threshold {
+                    self.pins.g1().set_high()?;
                 } else {
-                    self.pins.b().set_low()?;
+                    self.pins.g1().set_low()?;
                 }
-                if count & 4 != 0 {
-                    self.pins.c().set_high()?;
+                if element.2 >= threshold {
+                    self.pins.b1().set_high()?;
                 } else {
-                    self.pins.c().set_low()?;
+                    self.pins.b1().set_low()?;
                 }
-                if count & 8 != 0 {
-                    self.pins.d().set_high()?;
+                if element.3 >= threshold {
+                    self.pins.r2().set_high()?;
                 } else {
-                    self.pins.d().set_low()?;
+                    self.pins.r2().set_low()?;
                 }
-                #[cfg(feature = "size-64x64")]
-                if count & 16 != 0 {
-                    self.pins.f().set_high()?;
+                if element.4 >= threshold {
+                    self.pins.g2().set_high()?;
                 } else {
-                    self.pins.f().set_low()?;
+                    self.pins.g2().set_low()?;
                 }
-                delay.delay_us(2);
-                self.pins.oe().set_low()?;
+                if element.5 >= threshold {
+                    self.pins.b2().set_high()?;
+                } else {
+                    self.pins.b2().set_low()?;
+                }
+                self.pins.clk().set_high()?;
+                self.pins.clk().set_low()?;
             }
-        }
-        // Disable the output
-        // Prevents one row from being much brighter than the others
+            self.pins.oe().set_high()?;
+            // Prevents ghosting, no idea why
+            delay.delay_us(2);
+            self.pins.lat().set_low()?;
+            delay.delay_us(2);
+            self.pins.lat().set_high()?;
+            // Select row
+            if count & 1 != 0 {
+                self.pins.a().set_high()?;
+            } else {
+                self.pins.a().set_low()?;
+            }
+            if count & 2 != 0 {
+                self.pins.b().set_high()?;
+            } else {
+                self.pins.b().set_low()?;
+            }
+            if count & 4 != 0 {
+                self.pins.c().set_high()?;
+            } else {
+                self.pins.c().set_low()?;
+            }
+            if count & 8 != 0 {
+                self.pins.d().set_high()?;
+            } else {
+                self.pins.d().set_low()?;
+            }
+            #[cfg(feature = "size-64x64")]
+            if count & 16 != 0 {
+                self.pins.f().set_high()?;
+            } else {
+                self.pins.f().set_low()?;
+            }
+            delay.delay_us(2);
+            self.pins.oe().set_low()?;
+        } // Disable the output
+          // Prevents one row from being much brighter than the others
         self.pins.oe().set_high()?;
         Ok(())
     }
@@ -361,40 +353,16 @@ impl<PINS: Outputs> Hub75<PINS> {
 }
 
 pub type Error = &'static str;
-// This table remaps linear input values
-// (the numbers we’d like to use; e.g. 127 = half brightness)
-// to nonlinear gamma-corrected output values
-// (numbers producing the desired effect on the LED;
-// e.g. 36 = half brightness).
-const GAMMA8: [u8; 256] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5,
-    5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14,
-    14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25, 25, 26, 27,
-    27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36, 37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46,
-    47, 48, 49, 50, 50, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68, 69, 70, 72,
-    73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 95, 96, 98, 99, 101, 102, 104,
-    105, 107, 109, 110, 112, 114, 115, 117, 119, 120, 122, 124, 126, 127, 129, 131, 133, 135, 137,
-    138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 160, 162, 164, 167, 169, 171, 173, 175,
-    177, 180, 182, 184, 186, 189, 191, 193, 196, 198, 200, 203, 205, 208, 210, 213, 215, 218, 220,
-    223, 225, 228, 231, 233, 236, 239, 241, 244, 247, 249, 252, 255,
-];
 
 impl<PINS> OriginDimensions for Hub75<PINS> {
     fn size(&self) -> Size {
         #[cfg(feature = "size-64x64")]
         {
-            Size {
-                width: 64,
-                height: 64,
-            }
+            Size { width: 64, height: 64 }
         }
         #[cfg(not(feature = "size-64x64"))]
         {
-            Size {
-                width: 64,
-                height: 32,
-            }
+            Size { width: 64, height: 32 }
         }
     }
 }
@@ -411,13 +379,13 @@ impl<PINS: Outputs> DrawTarget for Hub75<PINS> {
             let row = coord[1] % NUM_ROWS as i32;
             let data = &mut self.data[row as usize][coord[0] as usize];
             if coord[1] >= NUM_ROWS as i32 {
-                data.3 = GAMMA8[color.r() as usize];
-                data.4 = GAMMA8[color.g() as usize];
-                data.5 = GAMMA8[color.b() as usize];
+                data.3 = color.r();
+                data.4 = color.g();
+                data.5 = color.b();
             } else {
-                data.0 = GAMMA8[color.r() as usize];
-                data.1 = GAMMA8[color.g() as usize];
-                data.2 = GAMMA8[color.b() as usize];
+                data.0 = color.r();
+                data.1 = color.g();
+                data.2 = color.b();
             }
         }
         Ok(())
